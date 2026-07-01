@@ -83,7 +83,8 @@ public partial class MainWindow : Window
             var img = new System.Windows.Controls.Image
             {
                 Stretch = System.Windows.Media.Stretch.Uniform,
-                Width = _settings.ImageWidth
+                Width = _settings.ImageWidth,
+                Margin = new Thickness(0, 0, 0, 8)
             };
             System.Windows.Media.RenderOptions.SetBitmapScalingMode(img, System.Windows.Media.BitmapScalingMode.HighQuality);
             _imageControls.Add(img);
