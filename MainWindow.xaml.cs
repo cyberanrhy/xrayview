@@ -1,10 +1,13 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Net.Http;
 using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media.Imaging;
 using Microsoft.Win32;
@@ -13,8 +16,6 @@ namespace XrayDesktop;
 
 public partial class MainWindow : Window
 {
-    private const string Img1Url = "https://xras.ru/image/xray_RAL5.png";
-    private const string Img2Url = "https://xras.ru/image/kp_RAL5.png";
     private static readonly string SettingsDir = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "XrayDesktop");
     private static readonly string SettingsFile = Path.Combine(SettingsDir, "settings.json");
@@ -24,6 +25,7 @@ public partial class MainWindow : Window
     private System.Windows.Threading.DispatcherTimer? _refreshTimer;
     private readonly HttpClient _http = new();
     private Settings _settings = new();
+    private readonly List<System.Windows.Controls.Image> _imageControls = new();
 
     public MainWindow()
     {
@@ -36,11 +38,16 @@ public partial class MainWindow : Window
         SetupTray();
         LoadSettings();
         ApplySettings();
-        await LoadImagesAsync();
+        await LoadAllImagesAsync();
+        StartRefreshTimer();
+    }
 
+    private void StartRefreshTimer()
+    {
+        _refreshTimer?.Stop();
         _refreshTimer = new System.Windows.Threading.DispatcherTimer();
-        _refreshTimer.Interval = TimeSpan.FromMinutes(20);
-        _refreshTimer.Tick += async (_, _) => await RefreshImagesAsync();
+        _refreshTimer.Interval = TimeSpan.FromMinutes(_settings.RefreshInterval);
+        _refreshTimer.Tick += async (_, _) => await RefreshAllImagesAsync();
         _refreshTimer.Start();
     }
 
@@ -67,21 +74,51 @@ public partial class MainWindow : Window
         _trayIcon.DoubleClick += (_, _) => Dispatcher.Invoke(() => { Show(); WindowState = WindowState.Normal; });
     }
 
-    private async Task LoadImagesAsync()
+    private void BuildImageStack()
+    {
+        ImageStack.Children.Clear();
+        _imageControls.Clear();
+        foreach (var url in _settings.ImageUrls)
+        {
+            var img = new System.Windows.Controls.Image
+            {
+                Stretch = System.Windows.Media.Stretch.Uniform,
+                Width = _settings.ImageWidth
+            };
+            System.Windows.Media.RenderOptions.SetBitmapScalingMode(img, System.Windows.Media.BitmapScalingMode.HighQuality);
+            _imageControls.Add(img);
+            ImageStack.Children.Add(img);
+        }
+    }
+
+    private async Task LoadAllImagesAsync()
     {
         Directory.CreateDirectory(CacheDir);
+        BuildImageStack();
+
+        for (int i = 0; i < _settings.ImageUrls.Count; i++)
+        {
+            try
+            {
+                var path = await DownloadOrCacheAsync(_settings.ImageUrls[i], $"img_{i}.png");
+                _imageControls[i].Source = new BitmapImage(new Uri(path));
+            }
+            catch { }
+        }
+    }
+
+    private async Task RefreshAllImagesAsync()
+    {
         try
         {
-            var path1 = await DownloadOrCacheAsync(Img1Url, "xray_RAL5.png");
-            var path2 = await DownloadOrCacheAsync(Img2Url, "kp_RAL5.png");
-            Image1.Source = new BitmapImage(new Uri(path1));
-            Image2.Source = new BitmapImage(new Uri(path2));
+            for (int i = 0; i < _settings.ImageUrls.Count && i < _imageControls.Count; i++)
+            {
+                var data = await _http.GetByteArrayAsync(_settings.ImageUrls[i]);
+                await File.WriteAllBytesAsync(Path.Combine(CacheDir, $"img_{i}.png"), data);
+                _imageControls[i].Source = LoadImage(data);
+            }
         }
-        catch (Exception ex)
-        {
-            WpfMsg.Show($"Ошибка загрузки изображений: {ex.Message}", "XrayDesktop",
-                MessageBoxButton.OK, MessageBoxImage.Warning);
-        }
+        catch { }
     }
 
     private async Task<string> DownloadOrCacheAsync(string url, string filename)
@@ -93,22 +130,6 @@ public partial class MainWindow : Window
             await File.WriteAllBytesAsync(path, data);
         }
         return path;
-    }
-
-    private async Task RefreshImagesAsync()
-    {
-        try
-        {
-            var data1 = await _http.GetByteArrayAsync(Img1Url);
-            var data2 = await _http.GetByteArrayAsync(Img2Url);
-
-            await File.WriteAllBytesAsync(Path.Combine(CacheDir, "xray_RAL5.png"), data1);
-            await File.WriteAllBytesAsync(Path.Combine(CacheDir, "kp_RAL5.png"), data2);
-
-            Image1.Source = LoadImage(data1);
-            Image2.Source = LoadImage(data2);
-        }
-        catch { }
     }
 
     private static BitmapImage LoadImage(byte[] data)
@@ -133,15 +154,33 @@ public partial class MainWindow : Window
     {
         var menu = new System.Windows.Controls.ContextMenu();
 
+        var refreshItem = new System.Windows.Controls.MenuItem { Header = "Обновить сейчас" };
+        refreshItem.Click += async (_, _) => await RefreshAllImagesAsync();
+        menu.Items.Add(refreshItem);
+
+        menu.Items.Add(new System.Windows.Controls.Separator());
+
+        var intervalItem = new System.Windows.Controls.MenuItem { Header = $"Интервал обновления ({_settings.RefreshInterval} мин)" };
+        var intervalSlider = new System.Windows.Controls.Slider
+        {
+            Minimum = 1, Maximum = 60, Width = 150,
+            Value = _settings.RefreshInterval,
+            TickFrequency = 1, IsSnapToTickEnabled = true
+        };
+        intervalSlider.ValueChanged += (_, ev) =>
+        {
+            _settings.RefreshInterval = (int)ev.NewValue;
+            intervalItem.Header = $"Интервал обновления ({_settings.RefreshInterval} мин)";
+            StartRefreshTimer();
+        };
+        intervalItem.Items.Add(intervalSlider);
+        menu.Items.Add(intervalItem);
+
         var opacityItem = new System.Windows.Controls.MenuItem { Header = "Прозрачность" };
         var opacitySlider = new System.Windows.Controls.Slider
         {
-            Minimum = 0.1,
-            Maximum = 1.0,
-            Width = 150,
-            Value = Opacity,
-            TickFrequency = 0.05,
-            IsSnapToTickEnabled = true
+            Minimum = 0.1, Maximum = 1.0, Width = 150,
+            Value = Opacity, TickFrequency = 0.05, IsSnapToTickEnabled = true
         };
         opacitySlider.ValueChanged += (_, ev) => Opacity = ev.NewValue;
         opacityItem.Items.Add(opacitySlider);
@@ -150,21 +189,76 @@ public partial class MainWindow : Window
         var sizeItem = new System.Windows.Controls.MenuItem { Header = "Размер" };
         var sizeSlider = new System.Windows.Controls.Slider
         {
-            Minimum = 100,
-            Maximum = 800,
-            Width = 150,
-            Value = _settings.ImageWidth,
-            TickFrequency = 50,
-            IsSnapToTickEnabled = true
+            Minimum = 100, Maximum = 800, Width = 150,
+            Value = _settings.ImageWidth, TickFrequency = 50, IsSnapToTickEnabled = true
         };
         sizeSlider.ValueChanged += (_, ev) =>
         {
             _settings.ImageWidth = ev.NewValue;
-            Image1.Width = ev.NewValue;
-            Image2.Width = ev.NewValue;
+            foreach (var img in _imageControls) img.Width = ev.NewValue;
         };
         sizeItem.Items.Add(sizeSlider);
         menu.Items.Add(sizeItem);
+
+        menu.Items.Add(new System.Windows.Controls.Separator());
+
+        var imagesItem = new System.Windows.Controls.MenuItem { Header = $"Картинки ({_settings.ImageUrls.Count})" };
+
+        for (int i = 0; i < _settings.ImageUrls.Count; i++)
+        {
+            var idx = i;
+            var name = GetImageShortName(_settings.ImageUrls[idx]);
+            var subItem = new System.Windows.Controls.MenuItem { Header = $"{idx + 1}. {name}" };
+
+            var changeItem = new System.Windows.Controls.MenuItem { Header = "Заменить..." };
+            changeItem.Click += async (_, _) =>
+            {
+                var dialog = new Microsoft.Win32.OpenFileDialog { Title = $"Выберите картинку {idx + 1}", Filter = "Images|*.png;*.jpg;*.jpeg;*.bmp;*.gif|All|*.*" };
+                if (dialog.ShowDialog() == true)
+                {
+                    _settings.ImageUrls[idx] = dialog.FileName;
+                    await ReloadImageAsync(idx);
+                }
+            };
+            subItem.Items.Add(changeItem);
+
+            var removeItem = new System.Windows.Controls.MenuItem { Header = "Удалить" };
+            removeItem.Click += async (_, _) =>
+            {
+                if (_settings.ImageUrls.Count <= 1) return;
+                _settings.ImageUrls.RemoveAt(idx);
+                await LoadAllImagesAsync();
+            };
+            subItem.Items.Add(removeItem);
+
+            imagesItem.Items.Add(subItem);
+        }
+
+        var addImageItem = new System.Windows.Controls.MenuItem { Header = "Добавить картинку..." };
+        addImageItem.Click += async (_, _) =>
+        {
+            var dialog = new Microsoft.Win32.OpenFileDialog { Title = "Выберите картинку", Filter = "Images|*.png;*.jpg;*.jpeg;*.bmp;*.gif|All|*.*" };
+            if (dialog.ShowDialog() == true)
+            {
+                _settings.ImageUrls.Add(dialog.FileName);
+                await LoadAllImagesAsync();
+            }
+        };
+        imagesItem.Items.Add(addImageItem);
+
+        var resetUrlsItem = new System.Windows.Controls.MenuItem { Header = "Сбросить все URL" };
+        resetUrlsItem.Click += async (_, _) =>
+        {
+            _settings.ImageUrls = new List<string>
+            {
+                "https://xras.ru/image/xray_RAL5.png",
+                "https://xras.ru/image/kp_RAL5.png"
+            };
+            await LoadAllImagesAsync();
+        };
+        imagesItem.Items.Add(resetUrlsItem);
+
+        menu.Items.Add(imagesItem);
 
         menu.Items.Add(new System.Windows.Controls.Separator());
 
@@ -193,6 +287,31 @@ public partial class MainWindow : Window
         menu.Items.Add(exitItem);
 
         menu.IsOpen = true;
+    }
+
+    private async Task ReloadImageAsync(int index)
+    {
+        try
+        {
+            var data = await _http.GetByteArrayAsync(_settings.ImageUrls[index]);
+            await File.WriteAllBytesAsync(Path.Combine(CacheDir, $"img_{index}.png"), data);
+            if (index < _imageControls.Count)
+                _imageControls[index].Source = LoadImage(data);
+        }
+        catch { }
+    }
+
+    private static string GetImageShortName(string url)
+    {
+        try
+        {
+            var name = Path.GetFileName(new Uri(url).AbsolutePath);
+            return name.Length > 30 ? name[..27] + "..." : name;
+        }
+        catch
+        {
+            return url.Length > 30 ? url[..27] + "..." : url;
+        }
     }
 
     private void Window_StateChanged(object? sender, EventArgs e)
@@ -224,6 +343,15 @@ public partial class MainWindow : Window
                 _settings = new Settings();
             }
         }
+
+        if (_settings.ImageUrls == null || _settings.ImageUrls.Count == 0)
+        {
+            _settings.ImageUrls = new List<string>
+            {
+                "https://xras.ru/image/xray_RAL5.png",
+                "https://xras.ru/image/kp_RAL5.png"
+            };
+        }
     }
 
     private void ApplySettings()
@@ -231,8 +359,6 @@ public partial class MainWindow : Window
         Left = _settings.Left;
         Top = _settings.Top;
         Opacity = _settings.Opacity;
-        Image1.Width = _settings.ImageWidth;
-        Image2.Width = _settings.ImageWidth;
     }
 
     private bool IsAutostartEnabled()
@@ -323,4 +449,6 @@ public class Settings
     public double Top { get; set; } = 100;
     public double Opacity { get; set; } = 0.9;
     public double ImageWidth { get; set; } = 300;
+    public int RefreshInterval { get; set; } = 20;
+    public List<string> ImageUrls { get; set; } = new();
 }

@@ -13,9 +13,6 @@
         StateChanged="Window_StateChanged">
 
     <Grid x:Name="MainGrid" Background="Transparent">
-        <StackPanel x:Name="ImageStack" Orientation="Vertical" HorizontalAlignment="Center">
-            <Image x:Name="Image1" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality" Margin="0,0,0,8" />
-            <Image x:Name="Image2" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality" />
-        </StackPanel>
+        <StackPanel x:Name="ImageStack" Orientation="Vertical" HorizontalAlignment="Center" />
     </Grid>
 </Window>
