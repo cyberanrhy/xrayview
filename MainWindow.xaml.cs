@@ -26,6 +26,7 @@ public partial class MainWindow : Window
     private readonly HttpClient _http = new();
     private Settings _settings = new();
     private readonly List<System.Windows.Controls.Image> _imageControls = new();
+    private readonly List<System.Windows.Controls.TextBlock> _errorLabels = new();
 
     public MainWindow()
     {
@@ -78,6 +79,7 @@ public partial class MainWindow : Window
     {
         ImageStack.Children.Clear();
         _imageControls.Clear();
+        _errorLabels.Clear();
         foreach (var url in _settings.ImageUrls)
         {
             var img = new System.Windows.Controls.Image
@@ -87,8 +89,27 @@ public partial class MainWindow : Window
                 Margin = new Thickness(0, 0, 0, 8)
             };
             System.Windows.Media.RenderOptions.SetBitmapScalingMode(img, System.Windows.Media.BitmapScalingMode.HighQuality);
+
+            var errorLabel = new System.Windows.Controls.TextBlock
+            {
+                Text = "Нет изображения",
+                Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Colors.Gray),
+                FontSize = 14,
+                HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
+                VerticalAlignment = System.Windows.VerticalAlignment.Center,
+                TextWrapping = TextWrapping.Wrap,
+                MaxWidth = _settings.ImageWidth,
+                Visibility = Visibility.Collapsed,
+                Margin = new Thickness(0, 0, 0, 8)
+            };
+
+            var grid = new System.Windows.Controls.Grid { Width = _settings.ImageWidth };
+            grid.Children.Add(img);
+            grid.Children.Add(errorLabel);
+
             _imageControls.Add(img);
-            ImageStack.Children.Add(img);
+            _errorLabels.Add(errorLabel);
+            ImageStack.Children.Add(grid);
         }
     }
 
@@ -103,23 +124,37 @@ public partial class MainWindow : Window
             {
                 var path = await DownloadOrCacheAsync(_settings.ImageUrls[i], $"img_{i}.png");
                 _imageControls[i].Source = new BitmapImage(new Uri(path));
+                _imageControls[i].Visibility = Visibility.Visible;
+                _errorLabels[i].Visibility = Visibility.Collapsed;
             }
-            catch { }
+            catch
+            {
+                _imageControls[i].Visibility = Visibility.Collapsed;
+                _errorLabels[i].Visibility = Visibility.Visible;
+                _errorLabels[i].Text = $"Нет изображения\n{GetImageShortName(_settings.ImageUrls[i])}";
+            }
         }
     }
 
     private async Task RefreshAllImagesAsync()
     {
-        try
+        for (int i = 0; i < _settings.ImageUrls.Count && i < _imageControls.Count; i++)
         {
-            for (int i = 0; i < _settings.ImageUrls.Count && i < _imageControls.Count; i++)
+            try
             {
                 var data = await _http.GetByteArrayAsync(_settings.ImageUrls[i]);
                 await File.WriteAllBytesAsync(Path.Combine(CacheDir, $"img_{i}.png"), data);
                 _imageControls[i].Source = LoadImage(data);
+                _imageControls[i].Visibility = Visibility.Visible;
+                _errorLabels[i].Visibility = Visibility.Collapsed;
+            }
+            catch
+            {
+                _imageControls[i].Visibility = Visibility.Collapsed;
+                _errorLabels[i].Visibility = Visibility.Visible;
+                _errorLabels[i].Text = $"Нет изображения\n{GetImageShortName(_settings.ImageUrls[i])}";
             }
         }
-        catch { }
     }
 
     private async Task<string> DownloadOrCacheAsync(string url, string filename)
@@ -196,7 +231,13 @@ public partial class MainWindow : Window
         sizeSlider.ValueChanged += (_, ev) =>
         {
             _settings.ImageWidth = ev.NewValue;
-            foreach (var img in _imageControls) img.Width = ev.NewValue;
+            for (int i = 0; i < _imageControls.Count; i++)
+            {
+                _imageControls[i].Width = ev.NewValue;
+                _errorLabels[i].MaxWidth = ev.NewValue;
+                if (ImageStack.Children[i] is System.Windows.Controls.Grid g)
+                    g.Width = ev.NewValue;
+            }
         };
         sizeItem.Items.Add(sizeSlider);
         menu.Items.Add(sizeItem);
