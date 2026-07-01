@@ -21,6 +21,7 @@ public partial class MainWindow : Window
     private static readonly string CacheDir = Path.Combine(SettingsDir, "cache");
 
     private System.Windows.Forms.NotifyIcon? _trayIcon;
+    private System.Windows.Threading.DispatcherTimer? _refreshTimer;
     private readonly HttpClient _http = new();
     private Settings _settings = new();
 
@@ -36,6 +37,11 @@ public partial class MainWindow : Window
         LoadSettings();
         ApplySettings();
         await LoadImagesAsync();
+
+        _refreshTimer = new System.Windows.Threading.DispatcherTimer();
+        _refreshTimer.Interval = TimeSpan.FromMinutes(20);
+        _refreshTimer.Tick += async (_, _) => await RefreshImagesAsync();
+        _refreshTimer.Start();
     }
 
     private void SetupTray()
@@ -87,6 +93,34 @@ public partial class MainWindow : Window
             await File.WriteAllBytesAsync(path, data);
         }
         return path;
+    }
+
+    private async Task RefreshImagesAsync()
+    {
+        try
+        {
+            var data1 = await _http.GetByteArrayAsync(Img1Url);
+            var data2 = await _http.GetByteArrayAsync(Img2Url);
+
+            await File.WriteAllBytesAsync(Path.Combine(CacheDir, "xray_RAL5.png"), data1);
+            await File.WriteAllBytesAsync(Path.Combine(CacheDir, "kp_RAL5.png"), data2);
+
+            Image1.Source = LoadImage(data1);
+            Image2.Source = LoadImage(data2);
+        }
+        catch { }
+    }
+
+    private static BitmapImage LoadImage(byte[] data)
+    {
+        var img = new BitmapImage();
+        using var ms = new MemoryStream(data);
+        img.BeginInit();
+        img.CacheOption = BitmapCacheOption.OnLoad;
+        img.StreamSource = ms;
+        img.EndInit();
+        img.Freeze();
+        return img;
     }
 
     private void Window_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -276,6 +310,7 @@ public partial class MainWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
+        _refreshTimer?.Stop();
         SaveSettings();
         _trayIcon?.Dispose();
         base.OnClosed(e);
