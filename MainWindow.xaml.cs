@@ -129,9 +129,19 @@ public partial class MainWindow : Window
             }
             catch
             {
-                _imageControls[i].Visibility = Visibility.Collapsed;
-                _errorLabels[i].Visibility = Visibility.Visible;
-                _errorLabels[i].Text = $"Нет изображения\n{GetImageShortName(_settings.ImageUrls[i])}";
+                var cachedPath = Path.Combine(CacheDir, $"img_{i}.png");
+                if (File.Exists(cachedPath))
+                {
+                    _imageControls[i].Source = new BitmapImage(new Uri(cachedPath));
+                    _imageControls[i].Visibility = Visibility.Visible;
+                    _errorLabels[i].Visibility = Visibility.Collapsed;
+                }
+                else
+                {
+                    _imageControls[i].Visibility = Visibility.Collapsed;
+                    _errorLabels[i].Visibility = Visibility.Visible;
+                    _errorLabels[i].Text = $"Нет изображения\n{GetImageShortName(_settings.ImageUrls[i])}";
+                }
             }
         }
     }
@@ -150,9 +160,7 @@ public partial class MainWindow : Window
             }
             catch
             {
-                _imageControls[i].Visibility = Visibility.Collapsed;
-                _errorLabels[i].Visibility = Visibility.Visible;
-                _errorLabels[i].Text = $"Нет изображения\n{GetImageShortName(_settings.ImageUrls[i])}";
+                // Оставляем старую картинку, не показываем ошибку
             }
         }
     }
