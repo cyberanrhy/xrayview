@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -30,6 +31,8 @@ public partial class MainWindow : Window
 
     public MainWindow()
     {
+        // Включаем TLS 1.2/1.3 — иначе HTTPS может не работать
+        ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12 | SecurityProtocolType.Tls13;
         InitializeComponent();
         Loaded += OnLoaded;
     }
@@ -152,15 +155,37 @@ public partial class MainWindow : Window
         {
             try
             {
-                var data = await _http.GetByteArrayAsync(_settings.ImageUrls[i]);
-                await File.WriteAllBytesAsync(Path.Combine(CacheDir, $"img_{i}.png"), data);
-                _imageControls[i].Source = LoadImage(data);
+                var url = _settings.ImageUrls[i];
+
+                // Скачиваем свежие данные
+                var data = await _http.GetByteArrayAsync(url);
+
+                // Сохраняем в кэш
+                var cachePath = Path.Combine(CacheDir, $"img_{i}.png");
+                await File.WriteAllBytesAsync(cachePath, data);
+
+                // Принудительно обновляем Image.Source — игнорируем встроенный кэш BitmapImage
+                var image = new BitmapImage();
+                using (var ms = new MemoryStream(data))
+                {
+                    image.BeginInit();
+                    image.CacheOption = BitmapCacheOption.OnLoad;
+                    image.CreateOptions = BitmapCreateOptions.IgnoreImageCache;
+                    image.StreamSource = ms;
+                    image.EndInit();
+                    image.Freeze();
+                }
+
+                _imageControls[i].Source = image;
                 _imageControls[i].Visibility = Visibility.Visible;
                 _errorLabels[i].Visibility = Visibility.Collapsed;
+
+                Debug.WriteLine($"Image {i} refreshed: {data.Length} bytes from {url}");
             }
-            catch
+            catch (Exception ex)
             {
-                // Оставляем старую картинку, не показываем ошибку
+                Debug.WriteLine($"Failed to refresh image {i}: {ex.Message}");
+                // Оставляем старую картинку
             }
         }
     }
