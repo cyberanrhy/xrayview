@@ -354,8 +354,8 @@ public partial class MainWindow : Window
         {
             _settings.ImageUrls = new List<string>
             {
-                "https://xras.ru/txt/sun_RAL5_ha.json",
-                "https://xras.ru/txt/sun_RAL5_171.json"
+                "https://xras.ru/image/xray_RAL5.png",
+                "https://xras.ru/image/kp_RAL5.png"
             };
             await LoadAllImagesAsync();
         };
@@ -467,8 +467,8 @@ public partial class MainWindow : Window
         {
             _settings.ImageUrls = new List<string>
             {
-                "https://xras.ru/txt/sun_RAL5_ha.json",
-                "https://xras.ru/txt/sun_RAL5_171.json"
+                "https://xras.ru/image/xray_RAL5.png",
+                "https://xras.ru/image/kp_RAL5.png"
             };
         }
     }
