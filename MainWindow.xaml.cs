@@ -156,15 +156,13 @@ public partial class MainWindow : Window
             try
             {
                 var url = _settings.ImageUrls[i];
+                var imageUrl = await ResolveImageUrlAsync(url);
 
-                // Скачиваем свежие данные
-                var data = await _http.GetByteArrayAsync(url);
+                var data = await _http.GetByteArrayAsync(imageUrl);
 
-                // Сохраняем в кэш
                 var cachePath = Path.Combine(CacheDir, $"img_{i}.png");
                 await File.WriteAllBytesAsync(cachePath, data);
 
-                // Принудительно обновляем Image.Source — игнорируем встроенный кэш BitmapImage
                 var image = new BitmapImage();
                 using (var ms = new MemoryStream(data))
                 {
@@ -180,24 +178,54 @@ public partial class MainWindow : Window
                 _imageControls[i].Visibility = Visibility.Visible;
                 _errorLabels[i].Visibility = Visibility.Collapsed;
 
-                Debug.WriteLine($"Image {i} refreshed: {data.Length} bytes from {url}");
+                Debug.WriteLine($"Image {i} refreshed: {data.Length} bytes from {imageUrl}");
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"Failed to refresh image {i}: {ex.Message}");
-                // Оставляем старую картинку
             }
+        }
+    }
+
+    private async Task<string> ResolveImageUrlAsync(string url)
+    {
+        if (!url.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
+            return url;
+
+        try
+        {
+            var json = await _http.GetStringAsync(url);
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+
+            if (!root.TryGetProperty("data", out var data) || data.GetArrayLength() == 0)
+                return url;
+
+            var first = data[0];
+            var path = first.GetProperty("path").GetString() ?? "";
+            var fname = first.GetProperty("fname").GetString() ?? "";
+
+            if (string.IsNullOrEmpty(fname))
+                return url;
+
+            var baseUrl = new Uri(url).GetLeftPart(UriPartial.Authority);
+            return $"{baseUrl}/database/sun_images/{path}{fname}";
+        }
+        catch
+        {
+            return url;
         }
     }
 
     private async Task<string> DownloadOrCacheAsync(string url, string filename)
     {
+        Directory.CreateDirectory(CacheDir);
         var path = Path.Combine(CacheDir, filename);
-        if (!File.Exists(path))
-        {
-            var data = await _http.GetByteArrayAsync(url);
-            await File.WriteAllBytesAsync(path, data);
-        }
+
+        var imageUrl = await ResolveImageUrlAsync(url);
+        var data = await _http.GetByteArrayAsync(imageUrl);
+        await File.WriteAllBytesAsync(path, data);
+
         return path;
     }
 
@@ -326,8 +354,8 @@ public partial class MainWindow : Window
         {
             _settings.ImageUrls = new List<string>
             {
-                "https://xras.ru/image/xray_RAL5.png",
-                "https://xras.ru/image/kp_RAL5.png"
+                "https://xras.ru/txt/sun_RAL5_ha.json",
+                "https://xras.ru/txt/sun_RAL5_171.json"
             };
             await LoadAllImagesAsync();
         };
@@ -368,7 +396,8 @@ public partial class MainWindow : Window
     {
         try
         {
-            var data = await _http.GetByteArrayAsync(_settings.ImageUrls[index]);
+            var imageUrl = await ResolveImageUrlAsync(_settings.ImageUrls[index]);
+            var data = await _http.GetByteArrayAsync(imageUrl);
             await File.WriteAllBytesAsync(Path.Combine(CacheDir, $"img_{index}.png"), data);
             if (index < _imageControls.Count)
                 _imageControls[index].Source = LoadImage(data);
@@ -378,6 +407,21 @@ public partial class MainWindow : Window
 
     private static string GetImageShortName(string url)
     {
+        var apiNames = new Dictionary<string, string>
+        {
+            { "sun_RAL5_ha.json", "Хромосфера (H-alpha)" },
+            { "sun_RAL5_171.json", "Корона (171Å)" },
+            { "sun_RAL5_hm.json", "Фотосфера" },
+            { "xray_RAL5.png", "Рентген (вспышки)" },
+            { "kp_RAL5.png", "Kp-индекс (магн. бури)" }
+        };
+
+        foreach (var kv in apiNames)
+        {
+            if (url.Contains(kv.Key))
+                return kv.Value;
+        }
+
         try
         {
             var name = Path.GetFileName(new Uri(url).AbsolutePath);
@@ -423,8 +467,8 @@ public partial class MainWindow : Window
         {
             _settings.ImageUrls = new List<string>
             {
-                "https://xras.ru/image/xray_RAL5.png",
-                "https://xras.ru/image/kp_RAL5.png"
+                "https://xras.ru/txt/sun_RAL5_ha.json",
+                "https://xras.ru/txt/sun_RAL5_171.json"
             };
         }
     }
