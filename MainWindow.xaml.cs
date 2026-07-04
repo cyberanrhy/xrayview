@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows;
@@ -31,8 +32,8 @@ public partial class MainWindow : Window
 
     public MainWindow()
     {
-        // Включаем TLS 1.2/1.3 — иначе HTTPS может не работать
         ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12 | SecurityProtocolType.Tls13;
+        _http.DefaultRequestHeaders.CacheControl = new CacheControlHeaderValue { NoCache = true };
         InitializeComponent();
         Loaded += OnLoaded;
     }
@@ -187,10 +188,16 @@ public partial class MainWindow : Window
         }
     }
 
+    private static string AddCacheBuster(string url)
+    {
+        var sep = url.Contains('?') ? '&' : '?';
+        return $"{url}{sep}_{Guid.NewGuid():N}";
+    }
+
     private async Task<string> ResolveImageUrlAsync(string url)
     {
         if (!url.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
-            return url;
+            return AddCacheBuster(url);
 
         try
         {
@@ -199,21 +206,22 @@ public partial class MainWindow : Window
             var root = doc.RootElement;
 
             if (!root.TryGetProperty("data", out var data) || data.GetArrayLength() == 0)
-                return url;
+                return AddCacheBuster(url);
 
             var first = data[0];
             var path = first.GetProperty("path").GetString() ?? "";
             var fname = first.GetProperty("fname").GetString() ?? "";
 
             if (string.IsNullOrEmpty(fname))
-                return url;
+                return AddCacheBuster(url);
 
             var baseUrl = new Uri(url).GetLeftPart(UriPartial.Authority);
-            return $"{baseUrl}/database/sun_images/{path}{fname}";
+            var resolved = $"{baseUrl}/database/sun_images/{path}{fname}";
+            return AddCacheBuster(resolved);
         }
         catch
         {
-            return url;
+            return AddCacheBuster(url);
         }
     }
 
