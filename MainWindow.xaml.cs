@@ -117,6 +117,63 @@ public partial class MainWindow : Window
         }
     }
 
+    private async Task<byte[]> DownloadImageAsync(string url)
+    {
+        var resolved = await ResolveImageUrlAsync(url);
+        return await _http.GetByteArrayAsync(resolved);
+    }
+
+    private BitmapSource CreateBitmap(byte[] data)
+    {
+        using var ms = new MemoryStream(data);
+        var frame = BitmapFrame.Create(ms, BitmapCreateOptions.IgnoreImageCache, BitmapCacheOption.OnLoad);
+        frame.Freeze();
+        return frame;
+    }
+
+    private void SetImage(int index, BitmapSource source)
+    {
+        _imageControls[index].Source = null;
+        _imageControls[index].Source = source;
+        _imageControls[index].Visibility = Visibility.Visible;
+        _errorLabels[index].Visibility = Visibility.Collapsed;
+    }
+
+    private void ShowError(int index)
+    {
+        var cached = Path.Combine(CacheDir, $"img_{index}.png");
+        if (File.Exists(cached))
+        {
+            try
+            {
+                var data = File.ReadAllBytes(cached);
+                SetImage(index, CreateBitmap(data));
+                return;
+            }
+            catch { }
+        }
+
+        _imageControls[index].Visibility = Visibility.Collapsed;
+        _errorLabels[index].Visibility = Visibility.Visible;
+        _errorLabels[index].Text = $"Нет изображения\n{GetImageShortName(_settings.ImageUrls[index])}";
+    }
+
+    private async Task<bool> FetchAndSetAsync(int index)
+    {
+        try
+        {
+            var data = await DownloadImageAsync(_settings.ImageUrls[index]);
+            var cachePath = Path.Combine(CacheDir, $"img_{index}.png");
+            await File.WriteAllBytesAsync(cachePath, data);
+            SetImage(index, CreateBitmap(data));
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private async Task LoadAllImagesAsync()
     {
         Directory.CreateDirectory(CacheDir);
@@ -124,29 +181,8 @@ public partial class MainWindow : Window
 
         for (int i = 0; i < _settings.ImageUrls.Count; i++)
         {
-            try
-            {
-                var path = await DownloadOrCacheAsync(_settings.ImageUrls[i], $"img_{i}.png");
-                _imageControls[i].Source = new BitmapImage(new Uri(path));
-                _imageControls[i].Visibility = Visibility.Visible;
-                _errorLabels[i].Visibility = Visibility.Collapsed;
-            }
-            catch
-            {
-                var cachedPath = Path.Combine(CacheDir, $"img_{i}.png");
-                if (File.Exists(cachedPath))
-                {
-                    _imageControls[i].Source = new BitmapImage(new Uri(cachedPath));
-                    _imageControls[i].Visibility = Visibility.Visible;
-                    _errorLabels[i].Visibility = Visibility.Collapsed;
-                }
-                else
-                {
-                    _imageControls[i].Visibility = Visibility.Collapsed;
-                    _errorLabels[i].Visibility = Visibility.Visible;
-                    _errorLabels[i].Text = $"Нет изображения\n{GetImageShortName(_settings.ImageUrls[i])}";
-                }
-            }
+            if (!await FetchAndSetAsync(i))
+                ShowError(i);
         }
     }
 
@@ -154,37 +190,8 @@ public partial class MainWindow : Window
     {
         for (int i = 0; i < _settings.ImageUrls.Count && i < _imageControls.Count; i++)
         {
-            try
-            {
-                var url = _settings.ImageUrls[i];
-                var imageUrl = await ResolveImageUrlAsync(url);
-
-                var data = await _http.GetByteArrayAsync(imageUrl);
-
-                var cachePath = Path.Combine(CacheDir, $"img_{i}.png");
-                await File.WriteAllBytesAsync(cachePath, data);
-
-                var image = new BitmapImage();
-                using (var ms = new MemoryStream(data))
-                {
-                    image.BeginInit();
-                    image.CacheOption = BitmapCacheOption.OnLoad;
-                    image.CreateOptions = BitmapCreateOptions.IgnoreImageCache;
-                    image.StreamSource = ms;
-                    image.EndInit();
-                    image.Freeze();
-                }
-
-                _imageControls[i].Source = image;
-                _imageControls[i].Visibility = Visibility.Visible;
-                _errorLabels[i].Visibility = Visibility.Collapsed;
-
-                Debug.WriteLine($"Image {i} refreshed: {data.Length} bytes from {imageUrl}");
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"Failed to refresh image {i}: {ex.Message}");
-            }
+            if (!await FetchAndSetAsync(i))
+                Debug.WriteLine($"Failed to refresh image {i}");
         }
     }
 
@@ -223,30 +230,6 @@ public partial class MainWindow : Window
         {
             return AddCacheBuster(url);
         }
-    }
-
-    private async Task<string> DownloadOrCacheAsync(string url, string filename)
-    {
-        Directory.CreateDirectory(CacheDir);
-        var path = Path.Combine(CacheDir, filename);
-
-        var imageUrl = await ResolveImageUrlAsync(url);
-        var data = await _http.GetByteArrayAsync(imageUrl);
-        await File.WriteAllBytesAsync(path, data);
-
-        return path;
-    }
-
-    private static BitmapImage LoadImage(byte[] data)
-    {
-        var img = new BitmapImage();
-        using var ms = new MemoryStream(data);
-        img.BeginInit();
-        img.CacheOption = BitmapCacheOption.OnLoad;
-        img.StreamSource = ms;
-        img.EndInit();
-        img.Freeze();
-        return img;
     }
 
     private void Window_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -402,15 +385,8 @@ public partial class MainWindow : Window
 
     private async Task ReloadImageAsync(int index)
     {
-        try
-        {
-            var imageUrl = await ResolveImageUrlAsync(_settings.ImageUrls[index]);
-            var data = await _http.GetByteArrayAsync(imageUrl);
-            await File.WriteAllBytesAsync(Path.Combine(CacheDir, $"img_{index}.png"), data);
-            if (index < _imageControls.Count)
-                _imageControls[index].Source = LoadImage(data);
-        }
-        catch { }
+        if (!await FetchAndSetAsync(index))
+            ShowError(index);
     }
 
     private static string GetImageShortName(string url)
