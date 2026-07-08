@@ -235,7 +235,10 @@ public partial class MainWindow : Window
     private void Window_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
         if (e.LeftButton == MouseButtonState.Pressed)
+        {
             DragMove();
+            SaveSettings();
+        }
     }
 
     private void Window_MouseRightButtonDown(object sender, MouseButtonEventArgs e)
