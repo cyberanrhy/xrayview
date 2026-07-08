@@ -437,9 +437,9 @@ public partial class MainWindow : Window
         {
             _settings.ImageUrls = new List<string>
             {
+                "_biorhythm_",
                 "https://xras.ru/image/xray_RAL5.png",
-                "https://xras.ru/image/kp_RAL5.png",
-                "_biorhythm_"
+                "https://xras.ru/image/kp_RAL5.png"
             };
             await LoadAllImagesAsync();
         };
@@ -608,9 +608,9 @@ public partial class MainWindow : Window
         {
             _settings.ImageUrls = new List<string>
             {
+                "_biorhythm_",
                 "https://xras.ru/image/xray_RAL5.png",
-                "https://xras.ru/image/kp_RAL5.png",
-                "_biorhythm_"
+                "https://xras.ru/image/kp_RAL5.png"
             };
         }
     }
