@@ -162,7 +162,20 @@ public partial class MainWindow : Window
     {
         try
         {
-            var data = await DownloadImageAsync(_settings.ImageUrls[index]);
+            byte[] data;
+            var url = _settings.ImageUrls[index];
+
+            if (url == "_biorhythm_")
+            {
+                if (_settings.Birthday == null)
+                    return false;
+                data = GenerateBiorhythmPng();
+            }
+            else
+            {
+                data = await DownloadImageAsync(url);
+            }
+
             var cachePath = Path.Combine(CacheDir, $"img_{index}.png");
             await File.WriteAllBytesAsync(cachePath, data);
             SetImage(index, CreateBitmap(data));
@@ -230,6 +243,54 @@ public partial class MainWindow : Window
         {
             return AddCacheBuster(url);
         }
+    }
+
+    private byte[] GenerateBiorhythmPng()
+    {
+        int w = (int)_settings.ImageWidth;
+        int h = (int)(w * 0.6);
+        var bmp = new System.Drawing.Bitmap(w, h, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        using var g = System.Drawing.Graphics.FromImage(bmp);
+        g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
+        g.Clear(System.Drawing.Color.Transparent);
+
+        var today = DateTime.Today;
+        int days = (today - _settings.Birthday!.Value).Days;
+        int pad = 8;
+        float pw = w - 2f * pad;
+        float ph = h - 2f * pad;
+        float cy = h / 2f;
+        int range = 15;
+
+        var cycles = new (int Period, System.Drawing.Color Color)[]
+        {
+            (23, System.Drawing.Color.FromArgb(200, 220, 80, 80)),
+            (28, System.Drawing.Color.FromArgb(200, 80, 130, 220)),
+            (33, System.Drawing.Color.FromArgb(200, 80, 200, 80))
+        };
+
+        foreach (var (period, color) in cycles)
+        {
+            using var pen = new System.Drawing.Pen(color, 2f);
+            var pts = new System.Drawing.PointF[2 * range + 1];
+            for (int d = -range; d <= range; d++)
+            {
+                float x = pad + pw * (d + range) / (2f * range);
+                double v = Math.Sin(2 * Math.PI * (days + d) / period);
+                float y = cy - (float)(v * ph / 2 * 0.85f);
+                pts[d + range] = new System.Drawing.PointF(x, y);
+            }
+            g.DrawCurve(pen, pts);
+        }
+
+        float tx = w / 2f;
+        using var dash = new System.Drawing.Pen(System.Drawing.Color.FromArgb(60, 180, 180, 180), 1f);
+        dash.DashStyle = System.Drawing.Drawing2D.DashStyle.Dot;
+        g.DrawLine(dash, tx, pad, tx, h - pad);
+
+        using var ms = new MemoryStream();
+        bmp.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
+        return ms.ToArray();
     }
 
     private void Window_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -349,13 +410,52 @@ public partial class MainWindow : Window
             _settings.ImageUrls = new List<string>
             {
                 "https://xras.ru/image/xray_RAL5.png",
-                "https://xras.ru/image/kp_RAL5.png"
+                "https://xras.ru/image/kp_RAL5.png",
+                "_biorhythm_"
             };
             await LoadAllImagesAsync();
         };
         imagesItem.Items.Add(resetUrlsItem);
 
         menu.Items.Add(imagesItem);
+
+        menu.Items.Add(new System.Windows.Controls.Separator());
+
+        var birthdayItem = new System.Windows.Controls.MenuItem
+        {
+            Header = _settings.Birthday.HasValue
+                ? $"Дата рождения: {_settings.Birthday:d}"
+                : "Дата рождения: не задана"
+        };
+        birthdayItem.Click += (_, _) =>
+        {
+            var cal = new System.Windows.Controls.Calendar
+            {
+                SelectedDate = _settings.Birthday ?? DateTime.Today.AddYears(-30),
+                DisplayDate = _settings.Birthday ?? DateTime.Today.AddYears(-30)
+            };
+            var btn = new System.Windows.Controls.Button { Content = "OK", Width = 80, Margin = new Thickness(0, 6, 0, 0) };
+            var panel = new System.Windows.Controls.StackPanel();
+            panel.Children.Add(cal);
+            panel.Children.Add(btn);
+            var win = new Window
+            {
+                Title = "Дата рождения",
+                Width = 220, Height = 260,
+                WindowStartupLocation = WindowStartupLocation.CenterScreen,
+                ResizeMode = ResizeMode.NoResize,
+                WindowStyle = WindowStyle.ToolWindow,
+                Content = panel
+            };
+            btn.Click += (_, _) => { _settings.Birthday = cal.SelectedDate; win.Close(); };
+            win.ShowDialog();
+            birthdayItem.Header = _settings.Birthday.HasValue
+                ? $"Дата рождения: {_settings.Birthday:d}"
+                : "Дата рождения: не задана";
+            SaveSettings();
+            _ = LoadAllImagesAsync();
+        };
+        menu.Items.Add(birthdayItem);
 
         menu.Items.Add(new System.Windows.Controls.Separator());
 
@@ -396,6 +496,7 @@ public partial class MainWindow : Window
     {
         var apiNames = new Dictionary<string, string>
         {
+            { "_biorhythm_", "Биоритмы" },
             { "sun_RAL5_ha.json", "Хромосфера (H-alpha)" },
             { "sun_RAL5_171.json", "Корона (171Å)" },
             { "sun_RAL5_hm.json", "Фотосфера" },
@@ -426,11 +527,36 @@ public partial class MainWindow : Window
             Hide();
     }
 
+    private System.Windows.Threading.DispatcherTimer? _resizeSaveTimer;
+
+    private void Window_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        // Debounce — сохраняем через 1.5 сек после последнего ресайза
+        if (_resizeSaveTimer == null)
+        {
+            _resizeSaveTimer = new System.Windows.Threading.DispatcherTimer();
+            _resizeSaveTimer.Interval = TimeSpan.FromSeconds(1.5);
+            _resizeSaveTimer.Tick += (_, _) =>
+            {
+                _resizeSaveTimer.Stop();
+                _resizeSaveTimer = null;
+                SaveSettings();
+            };
+        }
+        else
+        {
+            _resizeSaveTimer.Stop();
+        }
+        _resizeSaveTimer.Start();
+    }
+
     private void SaveSettings()
     {
         Directory.CreateDirectory(SettingsDir);
         _settings.Left = Left;
         _settings.Top = Top;
+        _settings.Width = Width;
+        _settings.Height = Height;
         _settings.Opacity = Opacity;
         var options = new JsonSerializerOptions { WriteIndented = true };
         File.WriteAllText(SettingsFile, JsonSerializer.Serialize(_settings, options));
@@ -455,7 +581,8 @@ public partial class MainWindow : Window
             _settings.ImageUrls = new List<string>
             {
                 "https://xras.ru/image/xray_RAL5.png",
-                "https://xras.ru/image/kp_RAL5.png"
+                "https://xras.ru/image/kp_RAL5.png",
+                "_biorhythm_"
             };
         }
     }
@@ -464,6 +591,8 @@ public partial class MainWindow : Window
     {
         Left = _settings.Left;
         Top = _settings.Top;
+        Width = _settings.Width;
+        Height = _settings.Height;
         Opacity = _settings.Opacity;
     }
 
@@ -553,8 +682,11 @@ public class Settings
 {
     public double Left { get; set; } = 100;
     public double Top { get; set; } = 100;
+    public double Width { get; set; } = 350;
+    public double Height { get; set; } = 400;
     public double Opacity { get; set; } = 0.9;
     public double ImageWidth { get; set; } = 300;
     public int RefreshInterval { get; set; } = 20;
     public List<string> ImageUrls { get; set; } = new();
+    public DateTime? Birthday { get; set; }
 }
