@@ -248,7 +248,7 @@ public partial class MainWindow : Window
     private byte[] GenerateBiorhythmPng()
     {
         int w = (int)_settings.ImageWidth;
-        int h = (int)(w * 0.6);
+        int h = (int)(w * 0.75);
         var bmp = new System.Drawing.Bitmap(w, h, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
         using var g = System.Drawing.Graphics.FromImage(bmp);
         g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
@@ -256,7 +256,7 @@ public partial class MainWindow : Window
 
         var today = DateTime.Today;
         int days = (today - _settings.Birthday!.Value).Days;
-        int pad = 8;
+        int pad = (int)(w * 0.08) + 4;
         float pw = w - 2f * pad;
         float ph = h - 2f * pad;
         float cy = h / 2f;
@@ -277,7 +277,7 @@ public partial class MainWindow : Window
             {
                 float x = pad + pw * (d + range) / (2f * range);
                 double v = Math.Sin(2 * Math.PI * (days + d) / period);
-                float y = cy - (float)(v * ph / 2 * 0.85f);
+                float y = cy - (float)(v * ph * 0.38f);
                 pts[d + range] = new System.Drawing.PointF(x, y);
             }
             g.DrawCurve(pen, pts);
