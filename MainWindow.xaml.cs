@@ -44,7 +44,16 @@ public partial class MainWindow : Window
         LoadSettings();
         ApplySettings();
         await LoadAllImagesAsync();
+        FitHeightToContent();
         StartRefreshTimer();
+    }
+
+    private void FitHeightToContent()
+    {
+        Dispatcher.InvokeAsync(() =>
+        {
+            Height = Math.Max(ImageStack.ActualHeight + 20, 200);
+        }, System.Windows.Threading.DispatcherPriority.Loaded);
     }
 
     private void StartRefreshTimer()
