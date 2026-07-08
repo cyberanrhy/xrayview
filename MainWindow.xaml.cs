@@ -252,6 +252,7 @@ public partial class MainWindow : Window
         var bmp = new System.Drawing.Bitmap(w, h, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
         using var g = System.Drawing.Graphics.FromImage(bmp);
         g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
+        g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAlias;
         g.Clear(System.Drawing.Color.Transparent);
 
         var today = DateTime.Today;
@@ -262,14 +263,14 @@ public partial class MainWindow : Window
         float cy = h / 2f;
         int range = 15;
 
-        var cycles = new (int Period, System.Drawing.Color Color)[]
+        var cycles = new (string Name, int Period, System.Drawing.Color Color)[]
         {
-            (23, System.Drawing.Color.FromArgb(200, 220, 80, 80)),
-            (28, System.Drawing.Color.FromArgb(200, 80, 130, 220)),
-            (33, System.Drawing.Color.FromArgb(200, 80, 200, 80))
+            ("Физ", 23, System.Drawing.Color.FromArgb(210, 220, 80, 80)),
+            ("Эмо", 28, System.Drawing.Color.FromArgb(210, 80, 130, 220)),
+            ("Инт", 33, System.Drawing.Color.FromArgb(210, 80, 200, 80))
         };
 
-        foreach (var (period, color) in cycles)
+        foreach (var (_, period, color) in cycles)
         {
             using var pen = new System.Drawing.Pen(color, 2f);
             var pts = new System.Drawing.PointF[2 * range + 1];
@@ -284,9 +285,27 @@ public partial class MainWindow : Window
         }
 
         float tx = w / 2f;
-        using var dash = new System.Drawing.Pen(System.Drawing.Color.FromArgb(60, 180, 180, 180), 1f);
+        float ty = h / 2f;
+        using var dash = new System.Drawing.Pen(System.Drawing.Color.FromArgb(50, 180, 180, 180), 1f);
         dash.DashStyle = System.Drawing.Drawing2D.DashStyle.Dot;
         g.DrawLine(dash, tx, pad, tx, h - pad);
+
+        using var font = new System.Drawing.Font("Segoe UI", 8f, System.Drawing.FontStyle.Bold);
+        int labelY = pad + 4;
+        foreach (var (name, period, color) in cycles)
+        {
+            double v = Math.Sin(2 * Math.PI * days / period);
+            int pct = (int)Math.Round(v * 100);
+            string label = $"{name} {pct:+0;-0}%";
+            float dotY = cy - (float)(v * ph * 0.38f);
+
+            using var dotBrush = new System.Drawing.SolidBrush(color);
+            g.FillEllipse(dotBrush, tx - 4, dotY - 4, 8, 8);
+
+            using var fmt = new System.Drawing.StringFormat { Alignment = System.Drawing.StringAlignment.Near, LineAlignment = System.Drawing.StringAlignment.Center };
+            using var textBrush = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(200, 255, 255, 255));
+            g.DrawString(label, font, textBrush, tx + 8, dotY, fmt);
+        }
 
         using var ms = new MemoryStream();
         bmp.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
@@ -688,5 +707,5 @@ public class Settings
     public double ImageWidth { get; set; } = 300;
     public int RefreshInterval { get; set; } = 20;
     public List<string> ImageUrls { get; set; } = new();
-    public DateTime? Birthday { get; set; }
+    public DateTime? Birthday { get; set; } = new(1988, 1, 14);
 }
